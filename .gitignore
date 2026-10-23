@@ -1,0 +1,34 @@
+# Configuración personal (UDID, IP, equipo de Apple, bundle IDs)
+config.env
+juegos.json
+
+# Firma y credenciales
+*.mobileprovision
+*.p12
+*.cer
+profile.plist
+entitlements.plist
+atv-creds.json
+atv-pin.txt
+
+# Binarios y juegos (nunca se publican)
+*.ipa
+*.iso
+*.wbfs
+*.rvz
+*.gcm
+*.ciso
+*.wia
+*.zip
+*.7z
+*.dylib
+
+# Generados
+accesos/project.yml
+accesos/Iconos/
+accesos/*.xcodeproj/
+accesos/build/
+stub/*.xcodeproj/
+stub/build/
+__pycache__/
+.DS_Store
