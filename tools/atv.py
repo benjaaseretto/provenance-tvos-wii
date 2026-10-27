@@ -31,7 +31,9 @@ async def find(loop):
     conf = found[0]
     if os.path.exists(CREDS):
         for proto, cred in json.load(open(CREDS)).items():
-            conf.set_credentials(Protocol[proto], cred)
+            proto_name = proto.capitalize()
+            if proto_name in Protocol.__members__:
+                conf.set_credentials(Protocol[proto_name], cred)
     return conf
 
 

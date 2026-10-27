@@ -68,9 +68,60 @@ Abrí Provenance en el Apple TV: su servidor web queda en `http://<IP del Apple 
 
 El `game_id` es el ID de 6 caracteres del disco (los primeros 6 bytes del `.iso`, por ejemplo `RMCE01`).
 
+## Modo Juegos Nativos Standalone (Inspirado en nxnative)
+
+En lugar de instalar la aplicación Provenance con su interfaz de emulador y usar accesos directos por URL trampolín, este modo convierte cada juego de Wii en una **aplicación independiente y nativa para tvOS**:
+
+- **Cero interfaz de emulador**: Al seleccionar el juego en el menú de inicio del Apple TV, arranca directamente en pantalla completa a 60 fps con backend Metal.
+- **Ícono 3D Parallax y Top Shelf**: Portada oficial en relieve multicapa (.imagestack) y banner panorámico cinemático en el estante superior.
+- **Soporte de mandos**: Control remoto del Apple TV (Siri Remote) y mandos Bluetooth (PlayStation, Xbox, Switch Pro, MFi) mapeados de fábrica.
+- **Sin Provenance**: No requiere tener la app de Provenance instalada ni servidores web locales de subida.
+
+### Empaquetar e instalar un juego standalone
+
+1. Configurá tu `config.env` y `juegos.json`.
+2. Empaquetá e instalá directamente en el Apple TV:
+   ```sh
+   standalone/instalar_standalone.sh
+   ```
+3. O empaquetá un juego manualmente:
+   ```sh
+   python3 standalone/empaquetar.py <Target> <GameID> /ruta/al/juego.iso
+   ```
+
+## App Android: Apple TV System Remote & Mando Wii (120 Hz)
+
+En [`android/`](android/) se incluye una aplicación Android nativa diseñada desde cero en **Java puro (API 35, cero dependencias externas, ~72 KB APK)** que convierte un teléfono Android (optimizada para pantallas **20:9 a 120 Hz** como el **Motorola Signature**) en un control remoto nativo del sistema Apple TV y en un mando multi-touch de Nintendo Wii de baja latencia.
+
+<p align="center">
+  <img src="docs/screenshots/control_remoto_tvos.png" width="23%" alt="Control del Sistema Apple TV" />
+  <img src="docs/screenshots/mando_wii_multitouch.png" width="23%" alt="Mando Wii Multi-Touch" />
+  <img src="docs/screenshots/sincronizacion_tiempo_real.png" width="23%" alt="Juegos y Apps en Tiempo Real" />
+  <img src="docs/screenshots/siri_control_voz.png" width="23%" alt="Siri y Búsqueda por Voz" />
+</p>
+
+### Arquitectura técnica del cliente Android (`com.signature.atvremote`)
+
+- **Protocolo nativo Apple Companion (`_companion-link._tcp`) en Java puro:**
+  - **HAP-SRP-6a (3072-bit) + HKDF-SHA-512:** Emparejamiento con PIN en pantalla (`Pair-Setup`) y verificación de sesión (`Pair-Verify`) en [`HapSrp.java`](android/app/src/main/java/com/signature/atvremote/protocol/HapSrp.java).
+  - **Criptografía `X25519` + `Ed25519` + `ChaCha20-Poly1305`:** Implementación en [`Crypto25519.java`](android/app/src/main/java/com/signature/atvremote/protocol/Crypto25519.java) con cifrado continuo autenticado (`E_OPACK` frame `0x08`) y latencia de **~9–35 ms RTT** en red local.
+  - **Serialización binaria `OPACK` y `TLV8`:** Codificador y decodificador completo en [`Opack.java`](android/app/src/main/java/com/signature/atvremote/protocol/Opack.java) y [`HapTlv8.java`](android/app/src/main/java/com/signature/atvremote/protocol/HapTlv8.java).
+  - **Teclado remoto y Siri por Voz (`_tiStart` / `_tiC` + `RTIKeyedArchiver`):** Construcción de payloads binarios `NSKeyedArchiver` en [`RtiPayload.java`](android/app/src/main/java/com/signature/atvremote/protocol/RtiPayload.java) combinada con `RecognizerIntent` de Android para abrir apps/juegos por voz (*"Abrir YouTube"*, *"Jugar Mario Kart"*, *"Pausa"*) o dictar búsquedas directamente en `com.apple.TVSearch`.
+- **Sincronización en tiempo real de Juegos y Aplicaciones:**
+  - Consulta en vivo al Apple TV mediante `FetchLaunchableApplicationsEvent` y al servidor web de Provenance, separando automáticamente los **Juegos Wii instalados** de las **Aplicaciones de tvOS** para lanzarlos con un toque.
+- **Mando Wii Multi-Touch + Giroscopio + Turbo:**
+  - Superficie multi-touch (`ACTION_POINTER_DOWN`/`UP`) que permite mantener el D-Pad para conducir o moverse mientras se pulsan simultáneamente los botones **A (`HID_SELECT`)**, **B (`HID_PLAY_PAUSE`)** o **Menú (`HID_MENU`)**, con modo **Giroscopio (Tilt)** y **Turbo A/B**.
+- **Privacidad de red:** Descubrimiento automático por mDNS (`NsdManager`) sin exponer direcciones IP ni puertos en la interfaz.
+
+### Compilar e instalar en Android
+
+```sh
+./android/build.sh --install
+```
+
 ## Rendimiento
 
-Valores que deja el parche y que conviene no cambiar en Provenance > Settings > Core Options > Dolphin:
+Valores que deja el parche y que conviene no cambiar en Provenance / Standalone Runner:
 
 - **Shader Compilation: Asynchronous (Uber).** Los otros modos frenan el juego un instante cada vez que aparece un efecto nuevo.
 - **Graphics Backend: Metal**, **Internal Resolution: 1x**, **V-Sync** apagado y **Dual Core** prendido.
@@ -79,9 +130,10 @@ El CPU queda en **Cached Interpreter**: tvOS solo permite el modo JIT (más ráp
 
 ## Límites
 
-- Con un Apple ID gratis, Apple permite 3 apps firmadas a la vez en el dispositivo: Provenance más dos íconos de juegos. El resto de los juegos se abre desde la biblioteca de Provenance.
-- La firma vence a los 7 días; `renovar.sh` la renueva sola si la Mac está prendida.
+- Con un Apple ID gratis, Apple permite 3 apps firmadas a la vez en el dispositivo: con el modo Standalone podés tener 3 juegos independientes completos instalados directamente en el inicio.
+- La firma vence a los 7 días; `standalone/renovar_standalone.sh` la renueva sola si la Mac está prendida.
 
 ## Licencia
 
 MIT para el código de este repo. Provenance, Dolphin y los juegos tienen sus propias licencias y no se distribuyen acá.
+

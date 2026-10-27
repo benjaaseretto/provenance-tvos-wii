@@ -28,7 +28,13 @@ accesos/project.yml
 accesos/Iconos/
 accesos/*.xcodeproj/
 accesos/build/
-stub/*.xcodeproj/
-stub/build/
+stub/
+build_standalone/
+build_derived_data/
+android/build/
+android/*.apk
+android/*.idsig
+tools/atv-creds.json
+tools/atv-pin.txt
 __pycache__/
 .DS_Store
