@@ -513,13 +513,9 @@ public final class CompanionClient {
     }
 
     /**
-     * Activa Siri / Búsqueda en el Apple TV:
-     * 1. Envía el comando nativo HID_SIRI (_hidC = 10).
-     * 2. Si el Apple TV no tiene ya un campo de búsqueda activo (por ejemplo cuando Siri por voz
-     *    está desactivado o en modo Buscar en tvOS), abre automáticamente com.apple.TVSearch
-     *    para que la pantalla de búsqueda/dictado aparezca de inmediato en la TV.
+     * Activa Siri en el Apple TV enviando _launchApp (com.apple.siri) y el pulso HID_SIRI (_hidC = 10),
+     * sin interrumpir la app actual con TVSearch a menos que el usuario dicte una búsqueda.
      */
-    @SuppressWarnings("unchecked")
     public void activateSiriOrSearch(Runnable onReady) {
         ioPool.execute(() -> {
             if (!isConnected()) {
@@ -528,32 +524,28 @@ public final class CompanionClient {
             }
             try {
                 long t0 = System.nanoTime();
+                try {
+                    Map<String, Object> siriLaunch = new LinkedHashMap<>();
+                    siriLaunch.put("_bundleID", "com.apple.siri");
+                    sendCommandSync("_launchApp", siriLaunch, 2500);
+                } catch (Exception ignored) {
+                }
                 Map<String, Object> down = new LinkedHashMap<>();
                 down.put("_hBtS", 1);
                 down.put("_hidC", HID_SIRI);
                 sendCommandSync("_hidC", down, 2500);
-                Thread.sleep(120);
+                Thread.sleep(150);
                 Map<String, Object> up = new LinkedHashMap<>();
                 up.put("_hBtS", 2);
                 up.put("_hidC", HID_SIRI);
                 sendCommandSync("_hidC", up, 2500);
                 this.lastRttMs = (System.nanoTime() - t0) / 1_000_000L;
-
-                // Verificar si se activó algún campo de entrada; si no, abrir Buscar (TVSearch)
-                Map<String, Object> tiResp = sendCommandSync("_tiStart", new LinkedHashMap<>(), 2500);
-                Object cObj = tiResp.get("_c");
-                boolean hasTextFocus = (cObj instanceof Map) && (((Map<String, Object>) cObj).get("_tiD") instanceof byte[]);
-                if (!hasTextFocus) {
-                    Map<String, Object> launch = new LinkedHashMap<>();
-                    launch.put("_bundleID", "com.apple.TVSearch");
-                    sendCommandSync("_launchApp", launch, 4000);
-                }
-                notifyState(true, "✓ Siri / Buscar activo en Sala", lastRttMs);
+                notifyState(true, "✓ Siri activo en Sala", lastRttMs);
                 if (onReady != null) {
                     onReady.run();
                 }
             } catch (Exception e) {
-                notifyError("Error activando Siri/Buscar: " + e.getMessage());
+                notifyError("Error activando Siri: " + e.getMessage());
             }
         });
     }

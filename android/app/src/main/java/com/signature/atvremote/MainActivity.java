@@ -6,6 +6,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.speech.RecognizerIntent;
+import android.speech.tts.TextToSpeech;
 import android.graphics.Color;
 import android.graphics.Insets;
 import android.graphics.Typeface;
@@ -130,6 +131,8 @@ public final class MainActivity extends Activity implements SensorEventListener 
     private boolean tiltModeEnabled = false;
     private NsdManager nsdManager;
     private NsdManager.DiscoveryListener discoveryListener;
+    private TextToSpeech tts;
+    private boolean ttsReady = false;
 
     private static final class SharedPreferencesWrapper {
         final SharedPreferences sp;
@@ -172,6 +175,13 @@ public final class MainActivity extends Activity implements SensorEventListener 
         if (sensorManager != null) {
             accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
         }
+
+        tts = new TextToSpeech(this, status -> {
+            if (status == TextToSpeech.SUCCESS && tts != null) {
+                tts.setLanguage(new Locale("es", "AR"));
+                ttsReady = true;
+            }
+        });
 
         companionClient = new CompanionClient(new CompanionClient.Listener() {
             @Override
@@ -650,7 +660,7 @@ public final class MainActivity extends Activity implements SensorEventListener 
             });
             box.setOnLongClickListener(v -> {
                 v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
-                showKeyboardInputDialog();
+                triggerSiriVoiceAndSearch();
                 return true;
             });
         } else {
@@ -1174,55 +1184,109 @@ public final class MainActivity extends Activity implements SensorEventListener 
         return norm.replaceAll("\\p{InCombiningDiacriticalMarks}+", "").trim();
     }
 
-    private void handleSiriVoiceCommand(String spokenText) {
-        String norm = normalizeVoice(spokenText);
+    private void speakSiriResponse(String message) {
+        Toast.makeText(this, "Siri: " + message, Toast.LENGTH_LONG).show();
+        if (tts != null && ttsReady) {
+            tts.speak(message, TextToSpeech.QUEUE_FLUSH, null, "siri_reply");
+        }
+    }
 
-        // 1. Comandos de navegación / reproducción por voz
-        if (norm.equals("pausa") || norm.equals("pausar") || norm.equals("reproducir")
-                || norm.equals("play") || norm.equals("continuar")) {
+    private void handleSiriVoiceCommand(String spokenText) {
+        String rawNorm = normalizeVoice(spokenText);
+        // Quitar wake-words ("hola siri", "oye siri", "hey siri", "siri")
+        String norm = rawNorm
+                .replaceFirst("^(hola siri|oye siri|hey siri|siri)[,\\s]*", "")
+                .replaceFirst("^(por favor)[,\\s]*", "")
+                .trim();
+
+        // 0. Saludos o conversación con Siri ("Hola Siri cómo estás", "Qué podés hacer", etc.)
+        if (norm.isEmpty()
+                || norm.equals("hola")
+                || norm.contains("como estas")
+                || norm.contains("que tal")
+                || norm.contains("quien sos")
+                || norm.contains("que podes hacer")
+                || norm.equals("ayuda")) {
+            speakSiriResponse("¡Hola! Estoy conectada al Apple TV Sala. Decime qué app o juego abrir, o qué película buscar.");
+            return;
+        }
+
+        // 1. Comandos de navegación y reproducción por voz
+        if (norm.contains("pausa") || norm.contains("pausar") || norm.contains("reproducir")
+                || norm.equals("play") || norm.contains("pone play") || norm.contains("continuar")) {
             companionClient.pressHidButton(CompanionClient.HID_PLAY_PAUSE, 40);
-            Toast.makeText(this, "Siri: Play / Pausa", Toast.LENGTH_SHORT).show();
+            speakSiriResponse("Listo, Play / Pausa en Sala.");
             return;
         }
-        if (norm.equals("inicio") || norm.equals("home") || norm.equals("menu principal")
-                || norm.equals("ir al inicio")) {
+        if (norm.contains("inicio") || norm.equals("home") || norm.contains("menu principal")) {
             companionClient.pressHidButton(CompanionClient.HID_HOME, 40);
-            Toast.makeText(this, "Siri: Inicio de Apple TV", Toast.LENGTH_SHORT).show();
+            speakSiriResponse("Yendo al inicio del Apple TV.");
             return;
         }
-        if (norm.equals("atras") || norm.equals("volver") || norm.equals("menu")) {
+        if (norm.contains("atras") || norm.contains("volver") || norm.equals("menu")) {
             companionClient.pressHidButton(CompanionClient.HID_MENU, 40);
-            Toast.makeText(this, "Siri: Atrás", Toast.LENGTH_SHORT).show();
+            speakSiriResponse("Volviendo atrás.");
             return;
         }
-        if (norm.contains("subir volumen") || norm.contains("mas volumen")) {
+        if (norm.contains("subir volumen") || norm.contains("subi el volumen") || norm.contains("mas volumen")) {
             for (int i = 0; i < 3; i++) {
                 companionClient.pressHidButton(CompanionClient.HID_VOLUME_UP, 30);
             }
-            Toast.makeText(this, "Siri: Subiendo volumen", Toast.LENGTH_SHORT).show();
+            speakSiriResponse("Subiendo el volumen.");
             return;
         }
-        if (norm.contains("bajar volumen") || norm.contains("menos volumen")) {
+        if (norm.contains("bajar volumen") || norm.contains("baja el volumen") || norm.contains("menos volumen")) {
             for (int i = 0; i < 3; i++) {
                 companionClient.pressHidButton(CompanionClient.HID_VOLUME_DOWN, 30);
             }
-            Toast.makeText(this, "Siri: Bajando volumen", Toast.LENGTH_SHORT).show();
+            speakSiriResponse("Bajando el volumen.");
             return;
         }
-        if (norm.contains("apagar") || norm.contains("suspender") || norm.contains("reposo")) {
+        if (norm.contains("adelantar") || norm.contains("adelanta") || norm.contains("avanzar")) {
+            companionClient.sendMediaControl(CompanionClient.MCC_SKIP_BY, Collections.singletonMap("_skpS", 10.0));
+            speakSiriResponse("Adelantando 10 segundos.");
+            return;
+        }
+        if (norm.contains("retroceder") || norm.contains("retrocede")) {
+            companionClient.sendMediaControl(CompanionClient.MCC_SKIP_BY, Collections.singletonMap("_skpS", -10.0));
+            speakSiriResponse("Retrocediendo 10 segundos.");
+            return;
+        }
+        if (norm.contains("apagar") || norm.contains("apaga") || norm.contains("suspender") || norm.contains("reposo")) {
             companionClient.pressHidButton(CompanionClient.HID_SLEEP, 40);
-            Toast.makeText(this, "Siri: Suspendiendo Apple TV", Toast.LENGTH_SHORT).show();
+            speakSiriResponse("Poniendo en reposo el Apple TV.");
             return;
         }
 
-        // 2. Comandos para abrir apps o juegos instalados ("abrir youtube", "jugar mario kart", etc.)
-        for (Map.Entry<String, String> entry : lastLiveApps.entrySet()) {
+        // 2. Comandos para abrir apps o juegos instalados (live + diccionario conocido de tvOS)
+        Map<String, String> candidateApps = new LinkedHashMap<>();
+        candidateApps.put("com.google.ios.youtube", "YouTube");
+        candidateApps.put("com.netflix.Netflix", "Netflix");
+        candidateApps.put("com.disney.disneyplus", "Disney+");
+        candidateApps.put("com.spotify.client", "Spotify");
+        candidateApps.put("com.amazon.aiv.AIVApp", "Prime Video");
+        candidateApps.put("com.wbd.stream", "HBO Max");
+        candidateApps.put("com.cbs.canada.app", "Paramount+");
+        candidateApps.put("com.mubi.mubiapp", "MUBI");
+        candidateApps.put("tv.twitch", "Twitch");
+        candidateApps.put("com.apple.TVWatchList", "Apple TV");
+        candidateApps.put("com.apple.TVMusic", "Música");
+        candidateApps.put("com.apple.TVPhotos", "Fotos");
+        candidateApps.put("com.apple.podcasts", "Podcasts");
+        candidateApps.put("com.apple.Arcade", "Arcade");
+        candidateApps.put("com.apple.Fitness", "Fitness");
+        candidateApps.put("com.apple.TVAppStore", "App Store");
+        candidateApps.put("com.apple.TVSettings", "Configuración");
+        candidateApps.put("com.apple.TVSearch", "Buscar");
+        candidateApps.putAll(lastLiveApps);
+
+        for (Map.Entry<String, String> entry : candidateApps.entrySet()) {
             String bundleId = entry.getKey();
             String appName = entry.getValue();
-            String cleanName = normalizeVoice(appName.replace("[Wii]", ""));
+            String cleanName = normalizeVoice(appName.replace("[Wii]", "").replace("+", ""));
             if (!cleanName.isEmpty() && norm.contains(cleanName)) {
                 companionClient.launchApp(bundleId, () -> runOnUiThread(() -> {
-                    Toast.makeText(this, "Siri: Abriendo " + appName + " en Sala", Toast.LENGTH_SHORT).show();
+                    speakSiriResponse("Abriendo " + appName + " en Sala.");
                     if (isGameBundle(bundleId, appName)) {
                         selectTab(1);
                     }
@@ -1231,9 +1295,43 @@ public final class MainActivity extends Activity implements SensorEventListener 
             }
         }
 
-        // 3. Cualquier otra frase hablada: dictar directamente en la búsqueda del Apple TV
-        Toast.makeText(this, "Siri buscando en Sala: \"" + spokenText + "\"", Toast.LENGTH_SHORT).show();
-        companionClient.sendTextInput(spokenText, true);
+        // Si pidió un juego de Wii ("mario kart", "wwe", "provenance") y aún no cargó lastLiveApps, consultar en vivo
+        if (norm.contains("mario") || norm.contains("wwe") || norm.contains("provenance") || norm.contains("wii")) {
+            companionClient.fetchLaunchableApps(apps -> runOnUiThread(() -> {
+                if (apps != null) {
+                    lastLiveApps.clear();
+                    lastLiveApps.putAll(apps);
+                    for (Map.Entry<String, String> entry : apps.entrySet()) {
+                        String b = entry.getKey();
+                        String n = entry.getValue();
+                        String cn = normalizeVoice(n.replace("[Wii]", ""));
+                        if ((!cn.isEmpty() && norm.contains(cn))
+                                || (norm.contains("mario") && b.toLowerCase(Locale.ROOT).contains("mario"))
+                                || (norm.contains("wwe") && b.toLowerCase(Locale.ROOT).contains("wwe"))
+                                || (norm.contains("provenance") && b.toLowerCase(Locale.ROOT).contains("provenance"))) {
+                            companionClient.launchApp(b, () -> runOnUiThread(() -> {
+                                speakSiriResponse("Abriendo " + n + " en Sala.");
+                                selectTab(1);
+                            }));
+                            return;
+                        }
+                    }
+                }
+            }));
+            return;
+        }
+
+        // 3. Búsqueda por voz en el Apple TV (limpiando verbos como "busca", "buscar", "quiero ver")
+        String searchQuery = spokenText
+                .replaceFirst("(?i)^(hola siri|oye siri|hey siri|siri)[,\\s]*", "")
+                .replaceFirst("(?i)^(por favor)[,\\s]*", "")
+                .replaceFirst("(?i)^(busca|buscar|buscame|encontra|quiero ver|pone|poner)\\s+", "")
+                .trim();
+        if (searchQuery.isEmpty()) {
+            searchQuery = spokenText;
+        }
+        speakSiriResponse("Buscando \"" + searchQuery + "\" en Sala.");
+        companionClient.sendTextInput(searchQuery, true);
     }
 
     private void showConnectionMenuDialog() {
@@ -1432,6 +1530,9 @@ public final class MainActivity extends Activity implements SensorEventListener 
         }
         if (companionClient != null) {
             companionClient.disconnectAsync();
+        }
+        if (tts != null) {
+            tts.shutdown();
         }
     }
 
